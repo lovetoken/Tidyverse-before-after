@@ -1,0 +1,218 @@
+---
+title: Tidyverse before & after
+author: <a href = "https://lovetoken.github.io">lovetoken</a>
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    fig_height: 6
+    theme: yeti
+    code_folding: show
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+    keep_md: no
+---
+
+```{r env, echo = F, warning = F, message = F}
+pacman::p_load(knitr, tidyverse, ggplot2, data.table)
+opts_chunk$set(fig.path = "output/figure/", fig.align = "center", out.width = "80%", warning = F, message = F)
+```
+
+<br><br>
+
+## Tidyverse korea meetup 5회차 세미나 발표 내용
+
+> https://tidyverse-korea.github.io/r-meetup-x-presser/
+
+* 일시 : 2019년 5월 22일 (수요일) 19:00 ~
+* 장소 : 역삼역 아주빌딩 2층 스파크플러스 (미정)
+* 발표 : 송효진, 넥슨 Lovetoken: "Tidyverse Before and After" 외 4개 세션 중 마지막 순서
+
+<br><br>
+
+## 나의 Before & After
+
+### 
+
+```{sql, eval = F}
+SELECT		t1.*, t2.amt amt0515,
+					CASE
+						WHEN t2.amt IS NULL THEN '00. Non'
+						WHEN t2.amt > 0 AND t2.amt <= 10000 THEN '01. 1~10000'
+						WHEN t2.amt > 10000 AND t2.amt <= 30000 THEN '02. 10000~30000'
+						WHEN t2.amt > 30000 AND t2.amt <= 100000 THEN '03. 30000~100000'
+						WHEN t2.amt > 100000 THEN '04. 100000~'
+					END user_group
+INTO			[TEMP].[lovetoken_kr_daily_predset]
+FROM			[dbmart03].[kr_daily] t1
+LEFT JOIN	[metainfo].[prop_rate] t2
+	ON			t1.key_id = t2.key_id
+	AND			t1.sn = t2.sn
+WHERE 		t1.dt >= timestamp '2018-01-01 00:00 UTC' AND t1.dt < timestamp '2018-05-16 00:00 UTC'
+```
+
+## Tidyverse Before & After
+
+### ex1
+
+* Before
+
+```{r}
+mtcars[sample(1:nrow(mtcars), 10), ]
+```
+
+* After
+
+```{r}
+mtcars %>% 
+	sample_n(10) %>% 
+	tbl_df
+```
+
+### ex2
+
+* Before
+
+```{r}
+unique(subset(mtcars, select = c("vs", "am")))
+```
+
+* After
+
+```{r}
+mtcars %>% 
+	distinct(vs, am)
+```
+
+### ex3
+
+* Before
+
+```{r}
+nrow(mtcars)
+length(unique(mtcars$qsec))
+```
+
+* After
+
+```{r}
+mtcars %>% 
+  group_by(qsec)
+```
+
+### ex4
+
+* Before
+
+```{r}
+library(sqldf)
+
+sqldf("
+  SELECT    vs, am, count(*) AS n, avg(mpg) AS avg_mpg, avg(hp) AS avg_hp 
+  FROM      mtcars
+  WHERE     cyl <> '4'
+  GROUP BY  vs, am
+")
+```
+
+* After
+
+```{r}
+mtcars %>% 
+  filter(cyl != 4) %>% 
+  group_by(vs, am) %>% 
+  summarise(n = n(), avg_mpg = mean(mpg), avg_hp = mean(hp))
+```
+
+### ex5
+
+* Before
+
+```{r}
+mpg_group <- cut(mtcars$mpg, 
+                 breaks = c(-Inf, 15, 20, 25, 30, Inf), 
+                 labels = c("~15", "15~20", "20~25", "25~30", "30~"))
+
+d <- data.frame(
+  mpg_group = levels(mpg_group),
+  n = c(table(mpg_group)),
+  prop = c(prop.table(table(mpg_group)))
+)
+
+d
+```
+
+* After
+
+```{r}
+d <- mtcars %>%
+  mutate(mpg_group = cut(mpg, 
+                         breaks = c(-Inf, 15, 20, 25, 30, Inf), 
+                         labels = c("~15", "15~20", "20~25", "25~30", "30~"))) %>%
+  count(mpg_group) %>%
+  mutate(prop = n / sum(n))
+
+d
+```
+
+### ex6, 7
+
+* Before
+
+```{r}
+mtcars2 <- cbind(mtcars, car_name = row.names(mtcars))
+mtcars3 <- reshape2::melt(mtcars2, id = "car_name")
+mtcars4 <- subset(
+  mtcars3, 
+  car_name %in% c("AMC Javelin", "Ferrari Dino", "Fiat X1-9") & 
+  variable %in% c("mpg", "hp", "wt", "drat", "qsec", "disp")
+)
+
+ggplot(mtcars4, aes(car_name, value)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~variable, scales = "free", ncol = 2) +
+  labs(x = "", y = "") + ggtitle("About mtcars")
+```
+
+* After
+
+```{r}
+mtcars %>% 
+  mutate(car_name = row.names(.)) %>% 
+  gather(vals, value, -car_name) %>% 
+  filter(
+    car_name %in% c("AMC Javelin", "Ferrari Dino", "Fiat X1-9"),
+    vals %in% c("mpg", "hp", "wt", "drat", "qsec", "disp")
+  ) %>% 
+  ggplot(aes(car_name, value)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~vals, scales = "free", ncol = 2) +
+  labs(x = "", y = "") +
+  ggtitle("About mtcars")
+```
+
+### ex8
+
+* Before
+
+```{r}
+res <- list()
+
+for(i in unique(mtcars$cyl)){
+  sub_mtcars <- subset(mtcars, cyl == i, select = c("mpg", "disp", "hp", "drat"))
+  lmfit <- lm(disp ~ ., data = sub_mtcars)
+  res[[paste0("cyl = ", i)]] <- summary(lmfit)$coefficients
+}
+
+res
+do.call(rbind, res)
+```
+
+* After
+
+```{r}
+mtcars %>%
+  group_by(cyl) %>%
+  select(mpg, disp, hp, drat) %>% 
+  group_map(~ broom::tidy(lm(disp ~ ., data = .x)))
+```
